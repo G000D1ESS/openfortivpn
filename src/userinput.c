@@ -341,7 +341,19 @@ void read_password(const char *pinentry, const char *hint,
 		return;
 	}
 
-	printf("%s", prompt);
+	// Trim trailing whitespace so we always emit exactly one separating
+	// space, regardless of whether the prompt already ends with one
+	size_t plen = strlen(prompt);
+
+	while (plen > 0 && (prompt[plen - 1] == ' ' || prompt[plen - 1] == '\t'))
+		plen--;
+
+	// Print the OTP/2FA prompt in blue, prefixed with a Nerd Font
+	// lock glyph (nf-fa-lock, U+F023), when writing to a terminal
+	if (isatty(STDOUT_FILENO))
+		printf("\033[0;34m\033[0m  %.*s ", (int)plen, prompt);
+	else
+		printf("%.*s ", (int)plen, prompt);
 	fflush(stdout);
 
 	// Try to hide user input

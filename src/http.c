@@ -38,6 +38,9 @@
  */
 #define HTTP_BUFFER_SIZE 0x10000
 
+/* Maximum number of chained one-time-password / factor challenges */
+#define MAX_OTP_ROUNDS 5
+
 
 /*
  * URL-encodes a string for HTTP requests.
@@ -470,7 +473,7 @@ static int try_otp_auth(struct tunnel *tunnel, const char *buffer,
 	char data[256];
 	char path[40];
 	char tmp[40];
-	char prompt[80];
+	char prompt[256];
 	const char *t = NULL, *n = NULL, *v = NULL, *e = NULL;
 	const char *s = buffer;
 	char *d = data;
@@ -494,22 +497,37 @@ static int try_otp_auth(struct tunnel *tunnel, const char *buffer,
 	strncpy(path, s, e - s);
 	path[e - s] = '\0';
 	/*
-	 * Try to get password prompt, assume it starts with 'Please'
-	 * Fall back to default prompt if not found/parseable
+	 * Try to get the message/prompt the gateway wants to show.
+	 * Priority:
+	 *   1. the user-configured otp_prompt
+	 *   2. a text starting with 'Please'
+	 *   3. the text inside the first <b>...</b> block, used by
+	 *      multi-factor selection forms (e.g. "select next
+	 *      authentication factor. Enter number: 1. ...; 2. ...")
+	 * Fall back to a default prompt if nothing is found/parseable.
+	 * The extracted message is echoed to the terminal so the user
+	 * sees what the gateway is asking for on each round.
 	 */
-	p = strstr(s, "Please");
+	p = NULL;
+	e = NULL;
 	if (tunnel->config->otp_prompt != NULL)
 		p = strstr(s, tunnel->config->otp_prompt);
+	if (p == NULL)
+		p = strstr(s, "Please");
 	if (p) {
 		e = strchr(p, '<');
-		if (e != NULL) {
-			if (e - p + 1 < sizeof(prompt)) {
-				strncpy(prompt, p, e - p);
-				prompt[e - p] = '\0';
-				p = prompt;
-			} else {
-				p = NULL;
-			}
+	} else {
+		p = strcasestr(s, "<b>");
+		if (p) {
+			p += 3;
+			e = strcasestr(p, "</b>");
+		}
+	}
+	if (p) {
+		if (e != NULL && e - p + 1 < sizeof(prompt)) {
+			strncpy(prompt, p, e - p);
+			prompt[e - p] = '\0';
+			p = prompt;
 		} else {
 			p = NULL;
 		}
@@ -534,7 +552,8 @@ static int try_otp_auth(struct tunnel *tunnel, const char *buffer,
 			continue;
 		n += 6;
 		t += 6;
-		if (strncmp(t, "hidden", 6) == 0 || strncmp(t, "password", 8) == 0) {
+		if (strncmp(t, "hidden", 6) == 0 || strncmp(t, "password", 8) == 0 ||
+		    strncmp(t, "text", 4) == 0) {
 			/*
 			 * We try to be on the safe side
 			 * and URL-encode the variable name
@@ -577,7 +596,8 @@ static int try_otp_auth(struct tunnel *tunnel, const char *buffer,
 				return -1;
 			url_encode(d, tmp);
 			d += strlen(d);
-		} else if (strncmp(t, "password", 8) == 0) {
+		} else if (strncmp(t, "password", 8) == 0 ||
+		           strncmp(t, "text", 4) == 0) {
 			struct vpn_config *cfg = tunnel->config;
 			size_t l;
 
@@ -737,8 +757,24 @@ int auth_log_in(struct tunnel *tunnel)
 		}
 	}
 
-	/* Probably one-time password required */
-	if (strncmp(res, "HTTP/1.1 401 Authorization Required\r\n", 37) == 0) {
+	/*
+	 * Probably one-time password required.
+	 *
+	 * The gateway can chain several authentication factors: after we
+	 * answer one 401 challenge it may reply with another 401 form
+	 * asking for the next factor. Loop over the challenges, but cap
+	 * the number of rounds to avoid an endless loop.
+	 */
+	for (int otp_round = 0;
+	     strncmp(res, "HTTP/1.1 401 Authorization Required\r\n", 37) == 0;
+	     otp_round++) {
+		if (otp_round >= MAX_OTP_ROUNDS) {
+			log_error("Too many one-time password challenges (max %d)\n",
+			          MAX_OTP_ROUNDS);
+			ret = ERR_HTTP_PERMISSION;
+			goto end;
+		}
+
 		delay_otp(tunnel);
 
 		ret = try_otp_auth(tunnel, res, &res, &response_size);
