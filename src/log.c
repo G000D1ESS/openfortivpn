@@ -36,18 +36,19 @@ static int is_a_tty; // static variables are initialized to zero in C99
 
 struct log_param_s {
 	const char *prefix;
-	const char *color_string;
+	const char *color_string;   // prefix (label) color
+	const char *msg_color;      // message color, "" = reset after label
 	int syslog_prio;
 };
 
 static const struct log_param_s log_params[OFV_LOG_DEBUG_ALL + 1] = {
-	{ "        ", "",           LOG_ERR},
-	{ "ERROR:  ", "\033[0;31m", LOG_ERR},
-	{ "WARN:   ", "\033[0;33m", LOG_WARNING},
-	{ "INFO:   ", "",           LOG_INFO},
-	{ "DEBUG:  ", "\033[0;90m", LOG_DEBUG},
-	{ "DEBUG:  ", "\033[0;90m", LOG_DEBUG},
-	{ "DEBUG:  ", "\033[0;90m", LOG_DEBUG},
+	{ "        ", "",           "",           LOG_ERR},
+	{ "ERROR:  ", "\033[1;31m", "\033[0;31m", LOG_ERR},
+	{ "WARN:   ", "\033[1;33m", "\033[0;33m", LOG_WARNING},
+	{ "INFO:   ", "\033[1;32m", "",           LOG_INFO},
+	{ "DEBUG:  ", "\033[0;90m", "\033[0;90m", LOG_DEBUG},
+	{ "DEBUG:  ", "\033[0;90m", "\033[0;90m", LOG_DEBUG},
+	{ "DEBUG:  ", "\033[0;90m", "\033[0;90m", LOG_DEBUG},
 };
 
 void init_logging(void)
@@ -72,6 +73,11 @@ void init_logging(void)
 	if (e)
 		fprintf(stderr, "ERROR:  pthread_mutex_init: %s\n",
 		        strerror(e));
+}
+
+int log_is_tty(void)
+{
+	return is_a_tty && !do_syslog;
 }
 
 void set_syslog(int use_syslog)
@@ -111,7 +117,8 @@ void do_log(int verbosity, const char *format, ...)
 	lp = &log_params[verbosity];
 
 	if (!do_syslog)
-		printf("%s%s", is_a_tty ? lp->color_string : "", lp->prefix);
+		printf("%s%s%s", is_a_tty ? lp->color_string : "", lp->prefix,
+		       is_a_tty ? (lp->msg_color[0] ? lp->msg_color : "\033[0;0m") : "");
 
 	va_start(args, format);
 	if (do_syslog)

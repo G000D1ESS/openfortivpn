@@ -36,6 +36,7 @@ extern enum log_verbosity loglevel;
 
 void init_logging(void);
 void set_syslog(int do_syslog);
+int log_is_tty(void);
 
 void increase_verbosity(void);
 void decrease_verbosity(void);

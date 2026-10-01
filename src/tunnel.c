@@ -137,7 +137,9 @@ static int on_ppp_if_up(struct tunnel *tunnel)
 		ipv4_add_nameservers_to_resolv_conf(tunnel);
 	}
 
-	log_info("Tunnel is up and running.\n");
+	/* yellow nerd-font bolt, only on a tty */
+	log_info("Tunnel is up and running%s\n",
+	         log_is_tty() ? " \033[1;33m\xef\x83\xa7\033[0m" : "");
 
 #if HAVE_SYSTEMD
 	sd_notify(0, "READY=1");
