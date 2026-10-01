@@ -628,7 +628,7 @@ static int ipv4_set_route(struct rtentry *route)
 		         strerror(errno));
 #else
 	/* we have to use the route command as tool for route manipulation */
-	char cmd[SHOW_ROUTE_BUFFER_SIZE];
+	char cmd[SHOW_ROUTE_BUFFER_SIZE + 32];
 
 	if (access("/sbin/route", F_OK) != 0) {
 		log_error("/sbin/route: %s.\n", strerror(errno));
@@ -654,6 +654,9 @@ static int ipv4_set_route(struct rtentry *route)
 		strncat(cmd, route_iface(route),
 		        SHOW_ROUTE_BUFFER_SIZE - strlen(cmd) - 1);
 	}
+
+	/* "File exists" etc. is harmless noise, the result is not checked anyway */
+	strncat(cmd, " >/dev/null 2>&1", sizeof(cmd) - strlen(cmd) - 1);
 
 	log_debug("%s\n", cmd);
 
@@ -695,7 +698,7 @@ static int ipv4_del_route(struct rtentry *route)
 		log_warn("Could not close socket for deleting route (%s).\n",
 		         strerror(errno));
 #else
-	char cmd[SHOW_ROUTE_BUFFER_SIZE];
+	char cmd[SHOW_ROUTE_BUFFER_SIZE + 32];
 
 	if (access("/sbin/route", F_OK) != 0) {
 		log_error("/sbin/route: %s.\n", strerror(errno));
@@ -721,6 +724,9 @@ static int ipv4_del_route(struct rtentry *route)
 		strncat(cmd, route_iface(route),
 		        SHOW_ROUTE_BUFFER_SIZE - strlen(cmd) - 1);
 	}
+
+	/* "File exists" etc. is harmless noise, the result is not checked anyway */
+	strncat(cmd, " >/dev/null 2>&1", sizeof(cmd) - strlen(cmd) - 1);
 
 	log_debug("%s\n", cmd);
 

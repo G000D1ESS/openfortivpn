@@ -27,6 +27,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -467,6 +468,112 @@ static void delay_otp(struct tunnel *tunnel)
 }
 
 
+/* Position in cfg->otp_select, reset at the start of each login. */
+static int otp_select_idx;
+
+/*
+ * Find the option of a menu like "... Enter number: 1. foo; 2. bar"
+ * whose text contains `want` (case-insensitive) and store its number
+ * in `out`. A purely numeric `want` is used as is.
+ * Return 1 on success, 0 if nothing matches.
+ */
+static int match_factor(const char *prompt, const char *want,
+                        char *out, size_t outlen)
+{
+	const char *s = strstr(prompt, "Enter number:");
+	size_t wl = strlen(want);
+	char buf[256];
+	char *seg, *save = NULL;
+
+	if (wl > 0 && strspn(want, "0123456789") == wl) {
+		snprintf(out, outlen, "%s", want);
+		return 1;
+	}
+	if (s == NULL || wl == 0)
+		return 0;
+	snprintf(buf, sizeof(buf), "%s", s + 13);
+	for (seg = strtok_r(buf, ";", &save); seg != NULL;
+	     seg = strtok_r(NULL, ";", &save)) {
+		size_t nd;
+
+		seg += strspn(seg, " ");
+		nd = strspn(seg, "0123456789");
+		if (nd == 0 || seg[nd] != '.')
+			continue;
+		if (strcasestr(seg + nd + 1, want) != NULL) {
+			snprintf(out, outlen, "%.*s", (int)nd, seg);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/*
+ * Fill cfg->otp.
+ *  - "Enter number" factor menus: next entry of otp-select (last one repeats), else ask
+ *    on the terminal (never pinentry).
+ *  - real OTP prompts: otp-command if set, else pinentry/terminal.
+ */
+static void read_otp(struct vpn_config *cfg, const char *hint,
+                     const char *prompt)
+{
+	cfg->otp[0] = '\0';
+
+	if (strstr(prompt, "Enter number") != NULL) {
+		const char *s = cfg->otp_select;
+		int i;
+
+		/* walk to entry #idx; past the end, keep reusing the last one */
+		for (i = 0; s != NULL && i < otp_select_idx; i++) {
+			const char *next = strchr(s, ',');
+
+			if (next == NULL)
+				break;
+			s = next + 1;
+		}
+		if (s != NULL && *s != '\0') {
+			char want[128];
+			size_t l = strcspn(s, ",");
+
+			if (l >= sizeof(want))
+				l = sizeof(want) - 1;
+			memcpy(want, s, l);
+			want[l] = '\0';
+			/* trim surrounding spaces */
+			while (l > 0 && want[l - 1] == ' ')
+				want[--l] = '\0';
+			otp_select_idx++;
+			if (match_factor(prompt, want + strspn(want, " "),
+			                 cfg->otp, OTP_SIZE + 1)) {
+				log_info("Auto-selecting factor %s (\"%s\")\n",
+				         cfg->otp, want + strspn(want, " "));
+				return;
+			}
+			log_error("No factor matching \"%s\" in menu\n", want);
+			cfg->otp[0] = '\0';
+		}
+		read_password(NULL, hint, prompt, cfg->otp, OTP_SIZE);
+		return;
+	}
+
+	if (cfg->otp_command != NULL) {
+		FILE *f = popen(cfg->otp_command, "r");
+
+		if (f == NULL) {
+			log_error("Could not run otp-command: %s\n", strerror(errno));
+		} else {
+			if (fgets(cfg->otp, OTP_SIZE + 1, f) != NULL)
+				cfg->otp[strcspn(cfg->otp, "\r\n")] = '\0';
+			if (pclose(f) != 0)
+				cfg->otp[0] = '\0';
+		}
+		if (cfg->otp[0] == '\0')
+			log_error("otp-command gave no OTP\n");
+		return;
+	}
+	read_password(cfg->pinentry, hint, prompt, cfg->otp, OTP_SIZE);
+}
+
 static int try_otp_auth(struct tunnel *tunnel, const char *buffer,
                         char **res, uint32_t *response_size)
 {
@@ -608,8 +715,7 @@ static int try_otp_auth(struct tunnel *tunnel, const char *buffer,
 
 				sprintf(hint, "%s_%s_%s_otp",
 				        cfg->username, cfg->realm, cfg->gateway_host);
-				read_password(cfg->pinentry, hint,
-				              p, cfg->otp, OTP_SIZE);
+				read_otp(cfg, hint, p);
 				if (cfg->otp[0] == '\0') {
 					log_error("No OTP specified\n");
 					return 0;
@@ -765,6 +871,7 @@ int auth_log_in(struct tunnel *tunnel)
 	 * asking for the next factor. Loop over the challenges, but cap
 	 * the number of rounds to avoid an endless loop.
 	 */
+	otp_select_idx = 0;
 	for (int otp_round = 0;
 	     strncmp(res, "HTTP/1.1 401 Authorization Required\r\n", 37) == 0;
 	     otp_round++) {
@@ -836,9 +943,8 @@ int auth_log_in(struct tunnel *tunnel)
 
 				sprintf(hint, "%s_%s_%s_2fa",
 				        cfg->username, cfg->realm, cfg->gateway_host);
-				read_password(cfg->pinentry, hint,
-				              "Two-factor authentication token: ",
-				              cfg->otp, OTP_SIZE);
+				read_otp(cfg, hint,
+				         "Two-factor authentication token: ");
 
 				if (cfg->otp[0] == '\0') {
 					log_error("No token specified\n");

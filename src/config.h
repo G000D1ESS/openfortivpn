@@ -80,6 +80,8 @@ struct vpn_config {
 	unsigned int		otp_delay;
 	int			no_ftm_push;
 	char			*pinentry;
+	char			*otp_command;
+	char			*otp_select;
 	char			iface_name[IF_NAMESIZE];
 	char			realm[REALM_SIZE + 1];
 

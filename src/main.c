@@ -79,7 +79,9 @@
 #define usage \
 "Usage: openfortivpn [<host>[:<port>]] [-u <user>] [-p <pass>]\n" \
 "                    [--cookie=<cookie>] [--cookie-on-stdin] [--saml-login]\n" \
-"                    [--otp=<otp>] [--otp-delay=<delay>] [--otp-prompt=<prompt>]\n" \
+"                    [--otp=<otp>] [--otp-command=<command>]\n" \
+"                    [--otp-select=<a,b,...>]\n" \
+"                    [--otp-delay=<delay>] [--otp-prompt=<prompt>]\n" \
 "                    [--pinentry=<program>] [--realm=<realm>]\n" \
 "                    [--ifname=<ifname>] [--set-routes=<0|1>]\n" \
 "                    [--half-internet-routes=<0|1>] [--set-dns=<0|1>]\n" \
@@ -121,6 +123,8 @@ PPPD_USAGE \
 "  --saml-login[=port]           Run a http server to handle SAML login requests\n" \
 "  -o <otp>, --otp=<otp>         One-Time-Password.\n" \
 "  --otp-prompt=<prompt>         Search for the OTP prompt starting with this string.\n" \
+"  --otp-command=<command>       Run shell command and use its first output line as OTP.\n" \
+"  --otp-select=<a,b,...>        Option text (or number) to pick in \"Enter number\" menus; comma-separated per menu, last repeats.\n" \
 "  --otp-delay=<delay>           Wait <delay> seconds before sending the OTP.\n" \
 "  --no-ftm-push                 Do not use FTM push if the server provides the option.\n" \
 "  --pinentry=<program>          Use the program to supply a secret instead of asking for it.\n" \
@@ -234,6 +238,8 @@ int main(int argc, char *argv[])
 		.otp_delay = 0,
 		.no_ftm_push = 0,
 		.pinentry = NULL,
+		.otp_command = NULL,
+		.otp_select = NULL,
 		.realm = {'\0'},
 		.iface_name = {'\0'},
 		.sni = {'\0'},
@@ -285,6 +291,8 @@ int main(int argc, char *argv[])
 		{"version",              no_argument,       NULL, 0},
 		{"config",               required_argument, NULL, 'c'},
 		{"pinentry",             required_argument, NULL, 0},
+		{"otp-command",          required_argument, NULL, 0},
+		{"otp-select",           required_argument, NULL, 0},
 		{"realm",                required_argument, NULL, 0},
 		{"username",             required_argument, NULL, 'u'},
 		{"password",             required_argument, NULL, 'p'},
@@ -464,6 +472,18 @@ int main(int argc, char *argv[])
 				        PEM_PASSPHRASE_SIZE);
 				cli_cfg.pem_passphrase[PEM_PASSPHRASE_SIZE] = '\0';
 				cli_cfg.pem_passphrase_set = 1;
+				break;
+			}
+			if (strcmp(long_options[option_index].name,
+			           "otp-command") == 0) {
+				free(cli_cfg.otp_command);
+				cli_cfg.otp_command = strdup(optarg);
+				break;
+			}
+			if (strcmp(long_options[option_index].name,
+			           "otp-select") == 0) {
+				free(cli_cfg.otp_select);
+				cli_cfg.otp_select = strdup(optarg);
 				break;
 			}
 			if (strcmp(long_options[option_index].name,

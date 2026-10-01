@@ -52,6 +52,8 @@ const struct vpn_config invalid_cfg = {
 	.otp_delay = -1,
 	.no_ftm_push = -1,
 	.pinentry = NULL,
+	.otp_command = NULL,
+	.otp_select = NULL,
 	.realm = {'\0'},
 	.iface_name = {'\0'},
 	.sni = {'\0'},
@@ -288,8 +290,16 @@ int load_config(struct vpn_config *cfg, const char *filename)
 				continue;
 			}
 			cfg->no_ftm_push = no_ftm_push;
+		} else if (strcmp(key, "otp-command") == 0) {
+			free(cfg->otp_command);
+	free(cfg->otp_select);
+			cfg->otp_command = strdup(val);
+		} else if (strcmp(key, "otp-select") == 0) {
+			free(cfg->otp_select);
+			cfg->otp_select = strdup(val);
 		} else if (strcmp(key, "pinentry") == 0) {
 			free(cfg->pinentry);
+	free(cfg->otp_command);
 			cfg->pinentry = strdup(val);
 		} else if (strcmp(key, "realm") == 0) {
 			strncpy(cfg->realm, val, REALM_SIZE);
@@ -546,6 +556,14 @@ void merge_config(struct vpn_config *dst, struct vpn_config *src)
 	}
 	if (src->saml_port != 0)
 		dst->saml_port = src->saml_port;
+	if (src->otp_command) {
+		free(dst->otp_command);
+		dst->otp_command = src->otp_command;
+	}
+	if (src->otp_select) {
+		free(dst->otp_select);
+		dst->otp_select = src->otp_select;
+	}
 	if (src->pinentry) {
 		free(dst->pinentry);
 		dst->pinentry = src->pinentry;
